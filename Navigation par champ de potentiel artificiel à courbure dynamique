@@ -1,0 +1,69 @@
+import jax
+import jax.numpy as jnp
+from fastapi import FastAPI, HTTPException
+import hashlib
+import os
+
+app = FastAPI(title="Hyper-Nav Core v0.9 [Restricted]")
+
+# --- ANTI-PLAGIAT / VERROU ---
+# Le hash doit correspondre à une variable d'environnement définie 
+# au déploiement du moteur sur la machine cible.
+LOCKED_HASH = os.getenv("NAV_CORE_LOCK", "e9f7...") 
+
+def verify_integrity(token: str):
+    if hashlib.sha256(token.encode()).hexdigest() != LOCKED_HASH:
+        raise HTTPException(status_code=403, detail="Unauthorized Execution")
+
+# --- MOTEUR HORS CONSENSUS (JAX) ---
+@jax.jit
+def non_linear_fold(pos: jnp.ndarray, target: jnp.ndarray, curvature_factor: float):
+    """
+    Applique une courbure non-euclidienne sur le vecteur de trajectoire.
+    Sort du consensus newtonien en modifiant la géodésique locale.
+    """
+    diff = target - pos
+    # Injection d'une distorsion sigmoïdale sur la trajectoire
+    # Cela permet d'optimiser les trajectoires dans des zones à haute densité gravitationnelle
+    fold = jnp.tanh(curvature_factor * diff) * jnp.linalg.norm(diff)
+    return fold
+
+@app.post("/nav/compute_hyper")
+def get_hyper_vector(pos: list[float], tar: list[float], token: str, curve: float = 1.5):
+    verify_integrity(token)
+    
+    pos_jax = jnp.array(pos)
+    tar_jax = jnp.array(tar)
+    
+    # Calcul de la trajectoire "pliée"
+    vector = non_linear_fold(pos_jax, tar_jax, curve)
+    
+    return {
+        "status": "folded",
+        "vector": vector.tolist(),
+        "integrity_check": "active"
+    }
+
+import jax
+import jax.numpy as jnp
+import hashlib
+
+# Le noyau est totalement abstrait du code logique
+# Il sera chargé dynamiquement depuis un environnement protégé
+class EvolveKernel:
+    def __init__(self, seed_key: str):
+        # La seed génère la structure de poids de départ
+        self.seed = int(hashlib.sha256(seed_key.encode()).hexdigest(), 16) % 10**6
+        self.weights = jax.random.normal(jax.random.PRNGKey(self.seed), (3, 3))
+
+    def evolve(self, error_gradient: jnp.ndarray):
+        # Auto-ajustement des poids selon le feedback
+        self.weights += 0.01 * error_gradient
+        return self.weights
+
+# --- MOTEUR (Logique immuable) ---
+@jax.jit
+def nav_step(pos, target, weights):
+    direction = target - pos
+    # La trajectoire est transformée par les poids auto-évolutifs
+    return jnp.dot(weights, direction)
